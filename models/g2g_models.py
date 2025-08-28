@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from pydantic import BaseModel, Field
 
@@ -72,3 +72,8 @@ class OffersResponse(BaseModel):
             return None
 
         return min(offers, key=lambda offer: offer.get_price_value())
+
+
+class PricingSimulationResponse(BaseModel):
+    income: Dict[str, str]
+    final_price: Dict[str, str] = Field(..., alias="finalePrice")

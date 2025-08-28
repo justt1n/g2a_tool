@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import random
 from typing import List, Optional
 
+from models.g2g_models import PricingSimulationResponse, Offer
 from models.logic_models import PayloadResult, CompareTarget
 from models.sheet_models import Payload
 from services.analyze_g2a_competition import CompetitionAnalysisService
@@ -54,6 +56,33 @@ class G2AProcessor:
             return False
         return True
 
+    async def _fetch_simulated_prices_for_top_offers(
+            self,
+            product_id: str,
+            offers: List[Offer]
+    ) -> List[PricingSimulationResponse]:
+        if not offers:
+            return []
+
+        top_offers = offers[:5]
+
+        tasks = [
+            self.g2a_service.simulate_pricing(
+                product_id=product_id,
+                price=float(offer.get_price_value())
+            )
+            for offer in top_offers
+        ]
+
+        simulation_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        successful_results = [
+            res for res in simulation_results
+            if isinstance(res, PricingSimulationResponse)
+        ]
+
+        return successful_results
+
     async def process_single_payload(self, payload: Payload) -> PayloadResult:
         if not self._validate_payload(payload):
             return PayloadResult(status=0, payload=payload, log_message="Payload validation failed.")
@@ -74,6 +103,7 @@ class G2AProcessor:
                 return PayloadResult(status=0, payload=payload, log_message=msg)
 
             product_offers = await self.g2a_service.get_compare_price(prod_id_to_compare)
+            product_offers = await self._fetch_simulated_prices_for_top_offers(str(prod_id_to_compare), product_offers)
             if not product_offers:
                 msg = f"No competition data found for product: {payload.product_name}"
                 logger.warning(msg)

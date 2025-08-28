@@ -2,7 +2,7 @@ import logging
 import re
 from typing import List, Optional
 
-from models.g2g_models import Offer
+from models.g2g_models import Offer, PricingSimulationResponse
 
 
 def get_prod_id(url: str) -> Optional[int]:
@@ -51,3 +51,19 @@ class G2AService:
     async def update_product_price(self, offer_id: str, new_price: float) -> bool:
         logger.info(f"Updating G2A offer {offer_id} with price {new_price}...")
         return True
+
+    async def simulate_pricing(
+            self,
+            product_id: str,
+            price: float
+    ) -> Optional[PricingSimulationResponse]:
+        try:
+            logger.info(f"Requesting pricing simulation for product {product_id}.")
+            simulation_result = await self.g2a_client.get_pricing_simulation(
+                product_id=product_id,
+                price=price
+            )
+            return simulation_result
+        except Exception as e:
+            logger.error(f"Failed to simulate pricing for product {product_id}: {e}")
+            return None

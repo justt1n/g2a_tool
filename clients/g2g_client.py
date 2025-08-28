@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 
 from clients.base_rest_client import BaseRestAPIClient
 from logic.auth import AuthHandler
-from models.g2g_models import OffersResponse
+from models.g2g_models import OffersResponse, PricingSimulationResponse
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,26 @@ class G2aClient(BaseRestAPIClient):
         return await self.get(
             endpoint=endpoint,
             response_model=OffersResponse,
+            params=params,
+            auth_required=True
+        )
+
+    async def get_pricing_simulation(
+            self,
+            product_id: str,
+            price: float
+    ) -> PricingSimulationResponse:
+        logger.info(f"Simulating pricing for product {product_id} at price {price}")
+
+        endpoint = "/v3/pricing/simulations"
+        params = {
+            "productId": product_id,
+            "price": str(price)
+        }
+
+        return await self.get(
+            endpoint=endpoint,
+            response_model=PricingSimulationResponse,
             params=params,
             auth_required=True
         )
