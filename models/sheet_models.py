@@ -107,7 +107,7 @@ class Payload(BaseGSheetModel):
 
     fetched_min_price: Optional[float] = None
     fetched_max_price: Optional[float] = None
-    fetched_stock: Optional[int] = None
+    fetched_stock: Optional[int] = 999
     fetched_black_list: Optional[List[str]] = None
     prod_uuid: Optional[str] = None
     offer_id: Optional[str] = None

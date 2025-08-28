@@ -1,12 +1,13 @@
 import logging
 import random
-from typing import List, Optional
+from typing import Optional
 
 from models.logic_models import PayloadResult, CompareTarget
 from models.sheet_models import Payload
 from services.analyze_g2a_competition import CompetitionAnalysisService
-from services.g2a_service import G2AService, get_prod_id
+from services.g2a_service import G2AService
 from utils.g2a_logger import get_g2a_log_string
+from utils.parser import get_prod_id, get_offer_id
 from utils.utils import round_up_to_n_decimals
 
 logger = logging.getLogger(__name__)
@@ -98,13 +99,27 @@ class G2AProcessor:
                 log_str = get_g2a_log_string("no_min_price", payload, edited_price, analysis_result)
                 return PayloadResult(status=0, payload=payload, final_price=None, log_message=log_str)
 
+            offer_id = get_offer_id(payload.product_id)
+            if not offer_id:
+                msg = f"Could not parse your offer ID from product_id: {payload.product_id}"
+                logger.error(msg)
+                return PayloadResult(status=0, payload=payload, log_message=msg)
+
+            offer_type = await self.g2a_service.get_offer_type(offer_id)
+            if not offer_type:
+                msg = f"Could not get offer type for {offer_id}."
+                logger.error(msg)
+                return PayloadResult(status=0, payload=payload, log_message=msg)
+
             log_str = get_g2a_log_string("compare", payload, edited_price, analysis_result)
             return PayloadResult(
                 status=1,
                 payload=payload,
                 competition=product_offers,
                 final_price=CompareTarget(name=analysis_result.competitor_name, price=edited_price),
-                log_message=log_str
+                log_message=log_str,
+                offer_id=offer_id,
+                offer_type=offer_type
             )
         except Exception as e:
             logger.error(f"Error processing payload {payload.product_name}: {e}", exc_info=True)

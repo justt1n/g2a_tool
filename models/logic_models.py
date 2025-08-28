@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -24,4 +24,7 @@ class PayloadResult(BaseModel):
     competition: list[Offer] | None = None
     final_price: CompareTarget | None = None
     log_message: str | None = None
+
+    offer_id: Optional[str] = None
+    offer_type: Optional[str] = None
 

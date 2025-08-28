@@ -69,6 +69,27 @@ async def test_get_compare_service():
         except Exception as e:
             logging.error(f"An error occurred: {e}", exc_info=True)
 
+
+async def test_get_offer_detail():
+    auth_handler = AuthHandler()
+    g2a_client = G2aClient(auth_handler=auth_handler)
+    g2a_service = G2AService(g2a_client=g2a_client)
+
+    try:
+        offer_id_to_check = "a93f5a5f-63d2-4a15-abe0-025adf3bec34"
+
+        offer_type = await g2a_service.get_offer_type(offer_id=offer_id_to_check)
+
+        if offer_type:
+            print(f"Successfully retrieved offer type for ID {offer_id_to_check}.")
+            print(f"Offer Type is: '{offer_type}'")  # Kết quả sẽ là: 'game'
+        else:
+            print(f"Failed to get type for offer ID {offer_id_to_check}.")
+
+    finally:
+        await g2a_client.close()
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(test_get_compare_service())
+    asyncio.run(test_get_offer_detail())

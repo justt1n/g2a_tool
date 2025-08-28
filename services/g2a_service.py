@@ -1,28 +1,8 @@
 import logging
-import re
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
-from models.g2g_models import Offer
-
-
-def get_prod_id(url: str) -> Optional[int]:
-    match = re.search(r'i(\d+)$', url)
-
-    if match:
-        return match.group(1)
-    else:
-        return None
-
-
-def get_offer_id(url):
-    try:
-        last_part = url.rstrip('/').split('/')[-1]
-        if last_part:
-            return last_part
-    except IndexError:
-        pass
-    return None
-
+from models.g2g_models import Offer, UpdatePricePayload, UpdateInventoryPayload, UpdateOfferVariantPayload, \
+    UpdateOfferPayload
 
 logger = logging.getLogger(__name__)
 
@@ -51,3 +31,52 @@ class G2AService:
     async def update_product_price(self, offer_id: str, new_price: float) -> bool:
         logger.info(f"Updating G2A offer {offer_id} with price {new_price}...")
         return True
+
+    async def get_offer_type(self, offer_id: str) -> Optional[str]:
+        try:
+            logger.info(f"Requesting type for offer {offer_id}.")
+
+            response = await self.g2a_client.get_offer_details(offer_id)
+
+            if response and response.data:
+                return response.data.type
+
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get type for offer {offer_id}: {e}")
+            return None
+
+    async def update_offer_price(
+            self,
+            offer_id: str,
+            offer_type: str,
+            new_price: float,
+            stock: Optional[int] = None
+    ) -> bool:
+        logger.info(f"Preparing to update price for offer {offer_id} (type: {offer_type})")
+
+        try:
+            price_payload = UpdatePricePayload(retail=f"{new_price:.2f}")
+            variant_data: Dict[str, Any] = {"price": price_payload}
+
+            if offer_type == "dropshipping" and stock is not None:
+                variant_data["inventory"] = UpdateInventoryPayload(size=stock)
+
+            variant_payload = UpdateOfferVariantPayload(**variant_data)
+
+            final_payload = UpdateOfferPayload(
+                offerType=offer_type,
+                variant=variant_payload
+            )
+
+            await self.g2a_client.patch_offer_details(
+                offer_id,
+                payload=final_payload
+            )
+
+            logger.info(f"Successfully updated price for offer {offer_id}.")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update price for offer {offer_id}: {e}")
+            return False

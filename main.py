@@ -4,12 +4,11 @@ from datetime import datetime
 from time import sleep
 
 from clients.g2g_client import G2aClient
+from clients.google_sheets_client import GoogleSheetsClient
 from logic.auth import AuthHandler
 from logic.processor import G2AProcessor
-
-from clients.google_sheets_client import GoogleSheetsClient
 from services.analyze_g2a_competition import CompetitionAnalysisService
-from services.g2a_service import G2AService, get_offer_id
+from services.g2a_service import G2AService
 from services.sheet_service import SheetService
 from utils.config import settings
 
@@ -40,19 +39,31 @@ async def run_automation():
                 result = await processor.process_single_payload(hydrated_payload)
 
                 log_data = None
-                if result.status == 1 and result.final_price is not None:
-                    # TODO: Implement a real update_product_price method in G2aService
-                    offer_id = get_offer_id(payload.product_id)
-                    await processor.g2a_service.update_product_price(offer_id=offer_id, new_price=result.final_price.price)
-                    logging.info(
-                        f"SUCCESS: Processed {payload.product_name}. New price: {result.final_price.price:.3f}. Competitor: {result.final_price.name}"
+                if result.status == 1 and result.final_price is not None and result.offer_id and result.offer_type:
+                    update_successful = await g2a_service.update_offer_price(
+                        offer_id=result.offer_id,
+                        offer_type=result.offer_type,
+                        new_price=result.final_price.price,
+                        stock=hydrated_payload.fetched_stock
                     )
-                    log_data = {
-                        'note': result.log_message,
-                        'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
+
+                    if update_successful:
+                        logging.info(
+                            f"SUCCESS: Updated {payload.product_name}. New price: {result.final_price.price:.3f}"
+                        )
+                        log_data = {
+                            'note': result.log_message,
+                            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                    else:
+                        logging.error(f"FAILED: Processed {payload.product_name}, but API update failed.")
+                        log_data = {
+                            'note': f"{result.log_message}\n\nERROR: API update call failed.",
+                            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
                 else:
-                    logging.warning(f"SKIPPED: {payload.product_name}. Reason: {result.log_message.splitlines()[0]}")
+                    reason = result.log_message.splitlines()[0] if result.log_message else "Unknown reason."
+                    logging.warning(f"SKIPPED: {payload.product_name}. Reason: {reason}")
                     log_data = {
                         'note': result.log_message,
                         'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')

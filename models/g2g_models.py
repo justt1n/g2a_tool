@@ -37,15 +37,13 @@ class Offer(BaseModel):
     inventory: InventoryInfo
 
     def get_price_value(self) -> float:
-        if not self.price or not self.price.retail or not self.price.retail.final:
+        if not self.price or not self.price.retail or not self.price.retail.base:
             return float('inf')
-
-        for price_info in self.price.retail.final:
-            if price_info and price_info.currency_code == "EUR":
-                try:
-                    return float(price_info.value)
-                except (ValueError, TypeError):
-                    return float('inf')
+        try:
+            if self.price.retail.base.currency_code == "EUR":
+                return float(self.price.retail.base.value)
+        except (ValueError, TypeError):
+            return float('inf')
 
         return float('inf')
 
@@ -72,3 +70,41 @@ class OffersResponse(BaseModel):
             return None
 
         return min(offers, key=lambda offer: offer.get_price_value())
+
+
+class OfferProductInfo(BaseModel):
+    id: str
+    name: str
+
+
+class OfferDetails(BaseModel):
+    id: str
+    type: str
+    status: str
+    price: str
+    product: OfferProductInfo
+
+
+class OfferDetailsResponse(BaseModel):
+    data: OfferDetails
+
+
+class UpdatePricePayload(BaseModel):
+    retail: str
+
+
+class UpdateInventoryPayload(BaseModel):
+    size: int
+
+
+class UpdateOfferVariantPayload(BaseModel):
+    visibility: str = "all"
+    active: bool = True
+    archive: bool = False
+    price: UpdatePricePayload
+    inventory: Optional[UpdateInventoryPayload] = None
+
+
+class UpdateOfferPayload(BaseModel):
+    offerType: str
+    variant: UpdateOfferVariantPayload
