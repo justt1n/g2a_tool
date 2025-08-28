@@ -1,24 +1,29 @@
 import logging
 
-from clients.impl.eneba_client import EnebaClient
-from services.eneba_service import EnebaService
+from logic.auth import AuthHandler
+
 
 if __name__ == "__main__":
-    eneba_service = EnebaService(
-        eneba_client=EnebaClient()
-    )
+    logging.basicConfig(level=logging.INFO)
 
-    _id = eneba_service.get_product_id_by_slug("psn-playstation-network-card-250-usd-usa-psn-key-united-states")
-    price_result = eneba_service.calculate_commission_price(
-        prodId=str(_id),
-        amount=250,
-    )
-    print(price_result.model_dump_json())
-    # print(_id)
-    # # products = eneba_service.get_competition_by_product_id(_id)
-    # products = eneba_service.get_competition_by_slug("psn-playstation-network-card-250-usd-usa-psn-key-united-states")
-    # products.sort(key=lambda x: x.node.price.amount, reverse=False)
-    # for product in products:
-    #     print(f"Merchant: {product.node.merchant_name}, Price: {product.node.price.amount} {product.node.price.currency}, In Stock: {product.node.is_in_stock}")
+    auth_handler = AuthHandler()
 
+    try:
+        print("First call:")
+        headers1 = auth_handler.get_auth_headers()
+        print(headers1)
+
+        print("\nSecond call (should use cached token):")
+        headers2 = auth_handler.get_auth_headers()
+        print(headers2)
+
+        print("\nForcing token expiration to test renewal...")
+        auth_handler._token_expires_at = 0.0
+        headers3 = auth_handler.get_auth_headers()
+        print(headers3)
+
+    except ConnectionError as e:
+        print(f"Error: {e}")
+    finally:
+        auth_handler.close()
 

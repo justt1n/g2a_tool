@@ -14,11 +14,11 @@ class Settings(BaseSettings):
 
     HEADER_KEY_COLUMNS_JSON: str = '["CHECK", "Product_name", "Product_pack"]'
     SLEEP_TIME: int = 5
-    BASE_URL: str = 'https://sosanhsach.io.vn/eneba-api/graphql/'
-    AUTH_URL: str = 'https://sosanhsach.io.vn/eneba-auth/oauth/token'
+
+    BASE_URL: str = 'https://api.g2a.com/'
+    AUTH_URL: str = 'https://api.g2a.com/oauth/token'
 
     CLIENT_ID: str
-    AUTH_ID: str
     AUTH_SECRET: str
 
     @property
