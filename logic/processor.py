@@ -62,6 +62,10 @@ class G2AProcessor:
         try:
             if not payload.is_compare_enabled:
                 logger.info(f"Skipping comparison for product: {payload.product_name}")
+                if payload.fetched_min_price is None:
+                    msg = "Cannot set final price without fetched_min_price when comparison is disabled."
+                    logger.warning(msg)
+                    return PayloadResult(status=0, payload=payload, log_message=msg)
                 final_price = round_up_to_n_decimals(payload.fetched_min_price, payload.price_rounding)
                 log_str = get_g2a_log_string(mode="not_compare", payload=payload, final_price=final_price)
                 return PayloadResult(status=1, payload=payload,
