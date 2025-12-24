@@ -60,17 +60,127 @@ class G2AProcessor:
             return PayloadResult(status=0, payload=payload, log_message="Payload validation failed.")
 
         try:
-            if not payload.is_compare_enabled:
+            mode = payload.get_compare_mode
+
+            if mode == 0:
                 logger.info(f"Skipping comparison for product: {payload.product_name}")
                 if payload.fetched_min_price is None:
                     msg = "Cannot set final price without fetched_min_price when comparison is disabled."
                     logger.warning(msg)
                     return PayloadResult(status=0, payload=payload, log_message=msg)
+
+                # 1. Tính giá mục tiêu
                 final_price = round_up_to_n_decimals(payload.fetched_min_price, payload.price_rounding)
+
+                # 2. Lấy giá hiện tại để kiểm tra (Cần lấy để biết có cần update không)
+                offer_id = get_offer_id(payload.product_id)
+                if offer_id:
+                    current_details = await self.g2a_service.get_offer_details_full(offer_id)
+                    if current_details and current_details.data:
+                        current_price = current_details.data.get_base_price()
+                        offer_type = current_details.data.type
+
+                        # -> KIỂM TRA: Nếu giá đã khớp -> Skip
+                        if abs(current_price - final_price) < 0.001:
+                            log_str = get_g2a_log_string(mode="equal", payload=payload, final_price=current_price)
+                            return PayloadResult(
+                                status=2,  # Skip
+                                payload=payload,
+                                final_price=CompareTarget(name="No Comparison", price=final_price),
+                                log_message=log_str,
+                                offer_id=offer_id
+                            )
+
+                        # Nếu cần update thì trả về đầy đủ offer_id và offer_type
+                        log_str = get_g2a_log_string(mode="not_compare", payload=payload, final_price=final_price)
+                        return PayloadResult(
+                            status=1,
+                            payload=payload,
+                            final_price=CompareTarget(name="No Comparison", price=final_price),
+                            log_message=log_str,
+                            offer_id=offer_id,
+                            offer_type=offer_type
+                        )
+
+                # Fallback nếu không lấy được giá hiện tại (Vẫn update mù)
                 log_str = get_g2a_log_string(mode="not_compare", payload=payload, final_price=final_price)
                 return PayloadResult(status=1, payload=payload,
                                      final_price=CompareTarget(name="No Comparison", price=final_price),
                                      log_message=log_str)
+
+            elif mode == 2:
+                offer_id = get_offer_id(payload.product_id)
+                if not offer_id:
+                    msg = f"Could not parse Offer ID from: {payload.product_id}"
+                    logger.error(msg)
+                    return PayloadResult(status=0, payload=payload, log_message=msg)
+
+                # Gọi API lấy chi tiết
+                current_details = await self.g2a_service.get_offer_details_full(offer_id)
+                if not current_details or not current_details.data:
+                    msg = f"Could not fetch current details for {offer_id}"
+                    logger.error(msg)
+                    return PayloadResult(status=0, payload=payload, log_message=msg)
+
+                current_price = current_details.data.get_base_price()
+                offer_type = current_details.data.type
+
+                prod_id_to_compare = get_prod_id(payload.product_compare)
+                if not prod_id_to_compare:
+                    msg = f"Invalid Compare URL: {payload.product_compare}"
+                    return PayloadResult(status=0, payload=payload, log_message=msg)
+
+                product_offers = await self.g2a_service.get_compare_price(prod_id_to_compare)
+
+                if not product_offers:
+                    logger.warning(f"No competition data found for {payload.product_name}")
+                    edited_price = self._calc_final_price(payload, None)
+                    competitor_name = "No Competition"
+                    analysis_result = None  # Init biến
+                else:
+                    analysis_result = self.analysis_service.analyze_g2a_competition(payload, product_offers)
+                    edited_price = self._calc_final_price(payload, analysis_result.competitive_price)
+                    competitor_name = analysis_result.competitor_name
+
+                # Kiểm tra Min Price
+                min_price_value = payload.get_min_price_value()
+                if min_price_value is not None and edited_price < min_price_value:
+                    if current_price < min_price_value:
+                        logger.info(f"Current ({current_price}) < Min ({min_price_value}). Force update to Min.")
+                        edited_price = min_price_value
+                    else:
+                        logger.info(f"Target ({edited_price}) < Min. Not updating.")
+                        log_str = get_g2a_log_string("below_min", payload, edited_price, analysis_result)
+                        return PayloadResult(status=0, payload=payload, final_price=None, log_message=log_str)
+
+                # -> KIỂM TRA: Nếu giá đã khớp -> Skip
+                if abs(current_price - edited_price) < 0.001:
+                    logger.info(f"Current price ({current_price}) == Target ({edited_price}). SKIP.")
+                    log_str = get_g2a_log_string(
+                        mode="equal",
+                        payload=payload,
+                        final_price=current_price,
+                        analysis_result=analysis_result
+                    )
+                    return PayloadResult(
+                        status=2,  # Skip
+                        payload=payload,
+                        competition=product_offers,
+                        final_price=None,
+                        log_message=log_str
+                    )
+
+                # Update
+                log_str = get_g2a_log_string("compare", payload, edited_price, analysis_result)
+                return PayloadResult(
+                    status=1,
+                    payload=payload,
+                    competition=product_offers,
+                    final_price=CompareTarget(name=competitor_name, price=edited_price),
+                    log_message=log_str,
+                    offer_id=offer_id,
+                    offer_type=offer_type
+                )
 
             prod_id_to_compare = get_prod_id(payload.product_compare)
             if not prod_id_to_compare:
@@ -83,12 +193,13 @@ class G2AProcessor:
                 msg = f"No competition data found for product: {payload.product_name}"
                 logger.warning(msg)
                 final_price = self._calc_final_price(payload, None)
+                # Mode 1 cũ không check giá current ở đây, nhưng nếu muốn check thì phải gọi API
+                # Tạm thời giữ nguyên logic cũ của bạn (update mù nếu không có đối thủ)
                 return PayloadResult(status=1, payload=payload,
                                      final_price=CompareTarget(name="No Competition", price=final_price),
                                      log_message=msg)
 
             analysis_result = self.analysis_service.analyze_g2a_competition(payload, product_offers)
-
             edited_price = self._calc_final_price(payload, analysis_result.competitive_price)
 
             min_price_value = payload.get_min_price_value()
@@ -103,18 +214,41 @@ class G2AProcessor:
                 log_str = get_g2a_log_string("no_min_price", payload, edited_price, analysis_result)
                 return PayloadResult(status=0, payload=payload, final_price=None, log_message=log_str)
 
+            # --- SỬA ĐOẠN CUỐI CỦA MODE 1 ---
             offer_id = get_offer_id(payload.product_id)
             if not offer_id:
                 msg = f"Could not parse your offer ID from product_id: {payload.product_id}"
                 logger.error(msg)
                 return PayloadResult(status=0, payload=payload, log_message=msg)
 
-            offer_type = await self.g2a_service.get_offer_type(offer_id)
-            if not offer_type:
-                msg = f"Could not get offer type for {offer_id}."
+            # Thay vì gọi get_offer_type (chỉ lấy type), ta gọi get_offer_details_full để lấy cả GIÁ
+            current_details = await self.g2a_service.get_offer_details_full(offer_id)
+            if not current_details or not current_details.data:
+                msg = f"Could not get offer details for {offer_id}."
                 logger.error(msg)
                 return PayloadResult(status=0, payload=payload, log_message=msg)
 
+            offer_type = current_details.data.type
+            current_price = current_details.data.get_base_price()
+
+            # -> KIỂM TRA: Nếu giá đã khớp -> Skip
+            if abs(current_price - edited_price) < 0.001:
+                log_str = get_g2a_log_string(
+                    mode="equal",
+                    payload=payload,
+                    final_price=current_price,
+                    analysis_result=analysis_result
+                )
+                return PayloadResult(
+                    status=2,  # Skip
+                    payload=payload,
+                    competition=product_offers,
+                    final_price=None,
+                    log_message=log_str,
+                    offer_id=offer_id
+                )
+
+            # Nếu khác -> Update
             log_str = get_g2a_log_string("compare", payload, edited_price, analysis_result)
             return PayloadResult(
                 status=1,
@@ -125,6 +259,7 @@ class G2AProcessor:
                 offer_id=offer_id,
                 offer_type=offer_type
             )
+
         except Exception as e:
             logger.error(f"Error processing payload {payload.product_name}: {e}", exc_info=True)
             return PayloadResult(status=0, payload=payload, log_message=f"Error: {str(e)}", final_price=None)

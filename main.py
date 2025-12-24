@@ -17,6 +17,7 @@ logging.getLogger("httpx").setLevel(logging.ERROR)
 logging.getLogger("httpcore").setLevel(logging.ERROR)
 logging.getLogger("googleapiclient").setLevel(logging.WARNING)
 
+# Lấy số worker từ config (Mặc định là 1 nếu không có file config)
 CONCURRENT_WORKERS = getattr(settings, 'WORKERS', 1)
 
 
@@ -26,7 +27,7 @@ async def process_row_wrapper(
         processor: G2AProcessor,
         g2a_service: G2AService,
         worker_semaphore: asyncio.Semaphore,
-        google_sheets_lock: asyncio.Semaphore  # <--- THÊM BIẾN NÀY
+        google_sheets_lock: asyncio.Semaphore
 ) -> Optional[Tuple[Any, Dict[str, Any]]]:
     """
     Worker xử lý 1 hàng.
@@ -34,18 +35,17 @@ async def process_row_wrapper(
     try:
         logging.info(f"Start processing row {payload.row_index} ({payload.product_name})...")
 
-        # --- BƯỚC 1: LẤY DỮ LIỆU (CÓ LOCK) ---
-        # Bắt buộc phải Lock đoạn này vì thư viện Google cũ không hỗ trợ đọc song song
+        # 1. Lấy dữ liệu (Có Lock)
         async with google_sheets_lock:
             hydrated_payload = await asyncio.to_thread(
                 sheet_service.fetch_data_for_payload, payload
             )
 
-        # --- BƯỚC 2: XỬ LÝ LOGIC (SONG SONG - KHÔNG CẦN LOCK) ---
+        # 2. Xử lý logic (Song song)
         result = await processor.process_single_payload(hydrated_payload)
         log_data = None
 
-        # --- BƯỚC 3: CẬP NHẬT GIÁ (SONG SONG) ---
+        # 3. Cập nhật giá (Song song)
         if result.status == 1 and result.final_price is not None and result.offer_id and result.offer_type:
             update_successful = await g2a_service.update_offer_price(
                 offer_id=result.offer_id,
@@ -67,13 +67,14 @@ async def process_row_wrapper(
                     'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 }
         else:
-            # Logic skip
+            # Logic skip (status 0 hoặc 2)
+            # log_message đã được xử lý kỹ ở processor (bao gồm cả skip do mode 2)
             log_data = {
                 'note': result.log_message,
                 'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
 
-        # --- BƯỚC 4: TRẢ VỀ KẾT QUẢ ĐỂ GHI SAU ---
+        # 4. Trả về
         if log_data:
             return (payload, log_data)
         return None
@@ -93,49 +94,59 @@ async def run_automation(
         google_sheets_lock: asyncio.Semaphore
 ):
     worker_semaphore = asyncio.Semaphore(CONCURRENT_WORKERS)
-    tasks = []
+
+    batch_size = CONCURRENT_WORKERS
 
     try:
         logging.info("Fetching payloads from Google Sheets...")
 
-        # Lấy danh sách row (Chạy 1 lần đầu, không cần lock)
-        payloads_to_process = await asyncio.to_thread(
+        all_payloads = await asyncio.to_thread(
             sheet_service.get_payloads_to_process
         )
 
-        if not payloads_to_process:
+        if not all_payloads:
             logging.info("No payloads to process.")
             return
 
-        logging.info(f"Found {len(payloads_to_process)} payloads. Start processing...")
+        total_payloads = len(all_payloads)
+        logging.info(
+            f"Found {total_payloads} payloads. Processing with {CONCURRENT_WORKERS} workers (Batch size: {batch_size})...")
 
-        for payload in payloads_to_process:
-            await worker_semaphore.acquire()
-            task = asyncio.create_task(
-                process_row_wrapper(
-                    payload=payload,
-                    sheet_service=sheet_service,
-                    processor=processor,
-                    g2a_service=g2a_service,
-                    worker_semaphore=worker_semaphore,
-                    google_sheets_lock=google_sheets_lock  # <--- TRUYỀN LOCK VÀO
+        for i in range(0, total_payloads, batch_size):
+            batch_payloads = all_payloads[i: i + batch_size]
+
+            current_batch_num = (i // batch_size) + 1
+            logging.info(
+                f"--- Batch {current_batch_num}: Processing rows {i + 1} to {min(i + batch_size, total_payloads)} ---")
+
+            tasks = []
+            for payload in batch_payloads:
+                await worker_semaphore.acquire()
+                task = asyncio.create_task(
+                    process_row_wrapper(
+                        payload=payload,
+                        sheet_service=sheet_service,
+                        processor=processor,
+                        g2a_service=g2a_service,
+                        worker_semaphore=worker_semaphore,
+                        google_sheets_lock=google_sheets_lock
+                    )
                 )
-            )
-            tasks.append(task)
+                tasks.append(task)
 
-        results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks)
 
-        # --- GIAI ĐOẠN GHI LOG (BATCH UPDATE) ---
-        updates_to_push = [res for res in results if res is not None]
+            updates_to_push = [res for res in results if res is not None]
 
-        if updates_to_push:
-            logging.info(f"Processing complete. Saving logs for {len(updates_to_push)} rows...")
-            # Gọi hàm batch update (Đã viết ở bước trước)
-            await asyncio.to_thread(
-                sheet_service.batch_update_logs, updates_to_push
-            )
-        else:
-            logging.info("Processing complete. No logs to update.")
+            if updates_to_push:
+                logging.info(f"Batch {current_batch_num} done. Updating Sheet logs...")
+                await asyncio.to_thread(
+                    sheet_service.batch_update_logs, updates_to_push
+                )
+            else:
+                logging.info(f"Batch {current_batch_num} done. Nothing to log.")
+
+        logging.info("All batches processed successfully.")
 
     except Exception as e:
         logging.critical(f"Error in run_automation: {e}", exc_info=True)

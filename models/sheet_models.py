@@ -156,6 +156,15 @@ class Payload(BaseGSheetModel):
         return self.is_compare_enabled_str == '1'
 
     @property
+    def get_compare_mode(self) -> int:
+        if self.is_compare_enabled_str == '1':
+            return 1
+        elif self.is_compare_enabled_str == '2':
+            return 2
+        else:
+            return 0
+
+    @property
     def is_have_min_price(self) -> bool:
         return self.get_min_price_value() is not None and self.get_min_price_value() > 0
 

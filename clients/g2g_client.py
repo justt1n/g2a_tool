@@ -14,7 +14,7 @@ class G2aClient(BaseRestAPIClient):
     def __init__(self, auth_handler: AuthHandler):
         super().__init__(base_url="https://api.g2a.com")
         self.auth_handler = auth_handler
-        logger.info("G2aClient initialized (No-Base-Change version).")
+        logger.info("G2aClient initialized")
 
     async def close(self):
         await self.auth_handler.close()

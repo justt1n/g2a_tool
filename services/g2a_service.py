@@ -2,7 +2,7 @@ import logging
 from typing import List, Optional, Dict, Any
 
 from models.g2g_models import Offer, UpdatePricePayload, UpdateInventoryPayload, UpdateOfferVariantPayload, \
-    UpdateOfferPayload
+    UpdateOfferPayload, OfferDetailsResponse
 
 logger = logging.getLogger(__name__)
 
@@ -80,3 +80,11 @@ class G2AService:
         except Exception as e:
             logger.error(f"Failed to update price for offer {offer_id}: {e}")
             return False
+
+    async def get_offer_details_full(self, offer_id: str) -> Optional[OfferDetailsResponse]:
+        try:
+            # logger.info(f"Fetching full details for offer {offer_id}")
+            return await self.g2a_client.get_offer_details(offer_id)
+        except Exception as e:
+            logger.error(f"Failed to get details for offer {offer_id}: {e}")
+            return None

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from pydantic import BaseModel, Field
 
@@ -82,7 +82,25 @@ class OfferDetails(BaseModel):
     type: str
     status: str
     price: str
-    product: OfferProductInfo
+    currency: str = "EUR"  # Mặc định hoặc lấy từ đâu đó nếu API trả về
+
+    # Bổ sung các trường thiếu
+    businessPrice: Optional[str] = None
+    visibility: Optional[str] = None
+    inventory: Optional[Dict[str, Any]] = None
+
+    # finalPrice là Dict map country code -> price string (VD: {"pl": "12.44"})
+    finalPrice: Optional[Dict[str, str]] = None
+    businessFinalPrice: Optional[Dict[str, str]] = None
+
+    product: Optional[OfferProductInfo] = None
+
+    def get_base_price(self) -> float:
+        """Helper để lấy giá gốc (Base Price) dạng float"""
+        try:
+            return float(self.price)
+        except (ValueError, TypeError):
+            return 0.0
 
 
 class OfferDetailsResponse(BaseModel):
