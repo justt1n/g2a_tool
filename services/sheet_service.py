@@ -127,3 +127,28 @@ class SheetService:
                     setattr(payload, f"fetched_{key}", processed_value)
 
         return payload
+
+    def batch_update_logs(self, updates: List[tuple]):
+        """
+        Nhận vào một list các tuple (payload, log_data).
+        Gom tất cả thành 1 request batchUpdate gửi lên Google.
+        """
+        if not updates:
+            return
+
+        all_requests = []
+        try:
+            for payload, log_data in updates:
+                # Tạo request update cho từng row nhưng KHÔNG gửi ngay
+                reqs = payload.prepare_update(settings.MAIN_SHEET_NAME, log_data)
+                if reqs:
+                    all_requests.extend(reqs)
+
+            if all_requests:
+                logging.info(f"Batch updating {len(updates)} rows to Google Sheets...")
+                # Gửi 1 lần duy nhất
+                self.client.batch_update(settings.MAIN_SHEET_ID, all_requests)
+                logging.info("Batch update completed successfully.")
+
+        except Exception as e:
+            logging.error(f"Error during batch update logs: {e}")

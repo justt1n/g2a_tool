@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     CLIENT_ID: str
     AUTH_SECRET: str
+    WORKERS: int = 1
 
     @property
     def HEADER_KEY_COLUMNS(self) -> List[str]:
