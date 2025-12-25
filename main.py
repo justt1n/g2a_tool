@@ -35,17 +35,14 @@ async def process_row_wrapper(
     try:
         logging.info(f"Start processing row {payload.row_index} ({payload.product_name})...")
 
-        # 1. Lấy dữ liệu (Có Lock)
         async with google_sheets_lock:
             hydrated_payload = await asyncio.to_thread(
                 sheet_service.fetch_data_for_payload, payload
             )
 
-        # 2. Xử lý logic (Song song)
         result = await processor.process_single_payload(hydrated_payload)
         log_data = None
 
-        # 3. Cập nhật giá (Song song)
         if result.status == 1 and result.final_price is not None and result.offer_id and result.offer_type:
             update_successful = await g2a_service.update_offer_price(
                 offer_id=result.offer_id,
@@ -67,14 +64,21 @@ async def process_row_wrapper(
                     'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 }
         else:
-            # Logic skip (status 0 hoặc 2)
-            # log_message đã được xử lý kỹ ở processor (bao gồm cả skip do mode 2)
+            # Logic skip
             log_data = {
                 'note': result.log_message,
                 'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
 
-        # 4. Trả về
+        if payload.relax:
+            try:
+                sleep_time = int(payload.relax)
+                if sleep_time > 0:
+                    logging.info(f"Row {payload.row_index} relaxing for {sleep_time}s...")
+                    await asyncio.sleep(sleep_time)
+            except (ValueError, TypeError):
+                pass # Bỏ qua nếu cấu hình relax không phải số
+
         if log_data:
             return (payload, log_data)
         return None
@@ -84,6 +88,7 @@ async def process_row_wrapper(
         return (payload, {'note': f"Error: {e}"})
 
     finally:
+        # Giải phóng slot worker
         worker_semaphore.release()
 
 
