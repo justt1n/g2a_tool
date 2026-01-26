@@ -81,6 +81,42 @@ class G2AService:
             logger.error(f"Failed to update price for offer {offer_id}: {e}")
             return False
 
+    async def update_offer_price(
+            self,
+            offer_id: str,
+            offer_type: str,
+            new_price: float,
+            business_price: Optional[float] = None,
+            stock: Optional[int] = None
+    ) -> bool:
+        logger.info(f"Preparing to update price for offer {offer_id} (type: {offer_type})")
+
+        try:
+            price_payload = UpdatePricePayload(retail=f"{new_price:.2f}", business=f"{business_price:.2f}" if business_price else None)
+            variant_data: Dict[str, Any] = {"price": price_payload}
+
+            if offer_type == "dropshipping" and stock is not None:
+                variant_data["inventory"] = UpdateInventoryPayload(size=stock)
+
+            variant_payload = UpdateOfferVariantPayload(**variant_data)
+
+            final_payload = UpdateOfferPayload(
+                offerType=offer_type,
+                variant=variant_payload
+            )
+
+            await self.g2a_client.patch_offer_details(
+                offer_id,
+                payload=final_payload
+            )
+
+            logger.info(f"Successfully updated price for offer {offer_id}.")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update price for offer {offer_id}: {e}")
+            return False
+
     async def get_offer_details_full(self, offer_id: str) -> Optional[OfferDetailsResponse]:
         try:
             # logger.info(f"Fetching full details for offer {offer_id}")

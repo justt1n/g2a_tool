@@ -109,6 +109,7 @@ class OfferDetailsResponse(BaseModel):
 
 class UpdatePricePayload(BaseModel):
     retail: str
+    business: Optional[str] = None
 
 
 class UpdateInventoryPayload(BaseModel):

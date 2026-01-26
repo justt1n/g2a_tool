@@ -104,6 +104,7 @@ class Payload(BaseGSheetModel):
     cell_blacklist: Annotated[Optional[str], "Z"] = None
     relax: Annotated[Optional[str], "AA"] = None
     min_price: Annotated[Optional[str], "AB"] = None
+    business_price: Annotated[Optional[str], "AB"] = None
 
     fetched_min_price: Optional[float] = None
     fetched_max_price: Optional[float] = None

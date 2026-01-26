@@ -11,6 +11,7 @@ from services.analyze_g2a_competition import CompetitionAnalysisService
 from services.g2a_service import G2AService
 from services.sheet_service import SheetService
 from utils.config import settings
+from utils.utils import calculate_formula
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger("httpx").setLevel(logging.ERROR)
@@ -44,12 +45,30 @@ async def process_row_wrapper(
         log_data = None
 
         if result.status == 1 and result.final_price is not None and result.offer_id and result.offer_type:
-            update_successful = await g2a_service.update_offer_price(
-                offer_id=result.offer_id,
-                offer_type=result.offer_type,
-                new_price=result.final_price.price,
-                stock=hydrated_payload.fetched_stock
-            )
+            if payload.business_price is not None:
+                bussiness_price = calculate_formula(result.final_price.price, payload.business_price)
+                if bussiness_price != 0.0:
+                    update_successful = await g2a_service.update_offer_price(
+                        offer_id=result.offer_id,
+                        offer_type=result.offer_type,
+                        new_price=result.final_price.price,
+                        business_price=bussiness_price,
+                        stock=hydrated_payload.fetched_stock
+                    )
+                else:
+                    update_successful = await g2a_service.update_offer_price(
+                        offer_id=result.offer_id,
+                        offer_type=result.offer_type,
+                        new_price=result.final_price.price,
+                        stock=hydrated_payload.fetched_stock
+                    )
+            else:
+                update_successful = await g2a_service.update_offer_price(
+                    offer_id=result.offer_id,
+                    offer_type=result.offer_type,
+                    new_price=result.final_price.price,
+                    stock=hydrated_payload.fetched_stock
+                )
 
             if update_successful:
                 logging.info(f"SUCCESS: Updated {payload.product_name} -> {result.final_price.price:.3f}")
